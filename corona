@@ -1,0 +1,462 @@
+#!/bin/bash
+
+POSIXLY_CORRECT=yes
+
+filters() {
+    sed -r 's/\s+//g' | sed '/^[[:space:]]*$/d' | validation | awk -F, -v DATEAFTER=$DATEAFTER -v DATEBEFORE=$DATEBEFORE -v GENDER=$GENDER '{if (substr($1,1,7)=="Invalid") {print; next;}}{   
+    if (DATEAFTER != "") {
+        if ($2 >= DATEAFTER) {
+            print;
+            next;
+        } else {
+            next;
+        }
+    }
+    if (DATEBEFORE != "") {
+        if ($2 <= DATEBEFORE) {
+            print;
+            next;
+        } else {
+            next;
+        }
+    }        
+    if (GENDER != "") {
+        if($4 == GENDER) {
+            print;
+            next;
+        } else {
+            next;
+        }
+    }    
+
+    {print}}'
+}
+
+correctDATE() {
+    if [[ $1 =~ ^[0-9]{4}-[0-1]{1}[0-9]{1}-[0-3]{1}[0-9]{1}$ ]] && (date "+%Y-%m-%d" -d "$1") 2> /dev/null 1> /dev/null ; then 
+            return 0
+        else 
+            return 1
+    fi
+}
+
+removeHeaders() {
+    sed '/'"id,datum,vek,pohlavi,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs"'/d'
+}
+
+detectNonExistentFile() {
+    
+    if ! [ -f $1 ] ;
+        then
+            echo "Neexistující soubor $1";
+            exit 1;
+    fi        
+} 
+
+validation() {
+    awk -F, '{
+    if ($3 !~ /^[0-9]*$/) {
+        print "Invalid age: " $0;
+        next;
+    }
+    if ($2 !~ /^[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]$/ && $2 != "") {
+        print "Invalid date: " $0;
+        next;
+    }
+    month = substr($2, 6, 2);
+    day = substr($2, 9, 10);
+    if (month != "00" && month <= 12 && day != "00" && day <= 31) {
+        if (month == "04" || month == "06" || month == "09" || month == "11") {
+            if (day == "31") {
+                print "Invalid date: " $0;
+                next;
+            }
+        } else if (month == "02") {
+                if (day > 29) {
+                    print "Invalid date: " $0;
+                    next;
+                }
+                year = substr($2, 1, 4);
+                if (year % 400 == 0) {
+
+                    } else if (year % 100 == 0) {
+                        if (day > 28) {
+                            print "Invalid date: " $0;
+                            next;
+                            }
+                        } else if (year % 4 == 0) {
+
+                            } else {
+                                if (day > 28) {
+                                print "Invalid date: " $0;
+                                 next;
+                                 }
+                            }
+            }
+    } else {print "Invalid date: " $0;
+       next;}
+print}'
+}
+
+InvalidDataToError() {
+    awk -F: '{if (substr($1,1,7)=="Invalid") {print > "/dev/stderr"; next;}}{print}'
+}
+
+histogram() {
+    if [ $WIDTH == 0 ] ; then
+    awk -F: -v HASH_COUNT=$1 '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    {printf $1": ";
+    VALUE=$2; 
+    HASH=VALUE/HASH_COUNT;
+    for (i=1; i <= HASH; i++)
+        printf "#";
+    print "";}'
+    else
+            awk -F: -v WIDTH=$WIDTH '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    { if (NR ==1) MAX_VALUE=substr($2,2);
+        printf $1": ";
+    VALUE=$2; 
+    HASH=WIDTH/(MAX_VALUE/VALUE);
+    for (i=1; i <= HASH; i++)
+        printf "#";
+    print "";}'
+    fi
+}
+
+gender() {
+    filters | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_M=0; count_Z=0; count_NONE=0;} {
+    if ($4 == "M") {count_M+=1} else if ($4 == "Z") {count_Z+=1} else if ($4 == "") {count_None+=1}
+    }END{{print "M: "count_M"\nZ: "count_Z} if (count_NONE != 0) {print "None: "count_NONE}}'
+}
+
+age() {
+    filters | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{C_5=0; C_15=0; C_25=0; C_35=0; C_45=0; C_55=0; C_65=0; C_75=0; C_85=0; C_95=0; C_105=0; C_N=0; C_NONE=0;} {
+    if ($3 >= 0 && $3 <= 5) {C_5+=1} else if ($3 >= 6 && $3 <= 15) {C_15+=1} else if ($3 >= 16 && $3 <= 25) {C_25+=1} else 
+    if ($3 >= 26 && $3 <= 35) {C_35+=1} else if ($3 >= 36 && $3 <= 45) {C_45+=1} else if ($3 >= 46 && $3 <= 55) {C_55+=1} else 
+    if ($3 >= 56 && $3 <= 65) {C_65+=1} else if ($3 >= 66 && $3 <= 75) {C_75+=1} else if ($3 >= 76 && $3 <= 85) {C_85+=1} else 
+    if ($3 >= 86 && $3 <= 95) {C_95+=1} else if ($3 >= 96 && $3 <= 105) {C_105+=1} else if ($3 >= 106) {C_N+=1} else if ($3 >= "") {C_NONE+=1} 
+    }END{{print "0-5   : "C_5"\n6-15  : "C_15"\n16-25 : "C_25"\n26-35 : "C_35"\n36-45 : "C_45"\n46-55 : "C_55"\n56-65 : "C_65"\n66-75 : "C_75"\n76-85 : "C_85"\n86-95 : "C_95"\n96-105: "C_105"\n>105  : "C_N} if (C_NONE != 0) {print "None  : "C_NONE}}'
+}
+
+daily() {
+    filters | sort -t, -k2 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_DAY=0; day=""; count_NONE=0;}
+    {if (NR==1) {day=$2}}
+    {if ($2=="") {count_NONE+=1;}}
+
+    {if (day==$2) {count_DAY+=1;}
+    else { {if (day != "") print day ": " count_DAY;} count_DAY=1; day=$2;}} 
+
+    END{{if (day != "") {print day ": " count_DAY}} if (count_NONE > 0) print "None: " count_NONE;}'
+}
+
+monthly() {
+    filters | sort -t, -k2 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_MONTH=0; month=""; count_NONE=0;}
+    {if (NR==1) {month=substr($2,1,7)}}
+    {if ($2=="") {count_NONE+=1;}}
+
+    {if (month==substr($2,1,7)) {count_MONTH+=1;}
+    else { {if (month != "") print month ": " count_MONTH;} count_MONTH=1; month=substr($2,1,7);}} 
+
+    END{{if (month != "") {print month ": " count_MONTH}} if (count_NONE > 0) print "None: " count_NONE;}'
+}
+
+yearly() {
+    filters | sort -t, -k2 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_YEAR=0; year=""; count_NONE=0;}
+    {if (NR==1) {year=substr($2,1,4)}}
+    {if ($2=="") {count_NONE+=1;}}
+
+    {if (year==substr($2,1,4)) {count_YEAR+=1;}
+    else { {if (year != "") print year ": " count_YEAR;} count_YEAR=1; year=substr($2,1,4);}} 
+
+    END{{if (year != "") {print year ": " count_YEAR}} if (count_NONE > 0) print "None: " count_NONE;}'
+}
+
+countries() {
+    filters | sort -t, -k8 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_COUNTRY=0; country=""; count_NONE=0;}
+    {if (NR==1) {country=$8}}
+    {if ($8=="") {count_NONE+=1;}}
+
+    {if (country==$8) {count_COUNTRY+=1;}
+    else { {if (country != "" && country != "CZ") print country ": " count_COUNTRY;} count_COUNTRY=1; country=$8;}} 
+
+    END{if (country != "")  print country ": " count_COUNTRY;}'
+}
+
+districts() {
+    filters | sort -t, -k6 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_DISTRICT=0; district=""; count_NONE=0;}
+    {if (NR==1) {district=$6}}
+    {if ($6=="") {count_NONE+=1;}}
+
+    {if (district==$6) {count_DISTRICT+=1;}
+    else { {if (district != "") print district ": " count_DISTRICT;} count_DISTRICT=1; district=$6;}} 
+
+    END{{if (district != "") {print district ": " count_DISTRICT}} if (count_NONE > 0) print "None: " count_NONE;}'
+}
+
+regions() {
+    filters | sort -t, -k5 | awk -F, '{if (substr($1,1,7)=="Invalid") {print; next;}}
+    BEGIN{count_REGION=0; region=""; count_NONE=0;}
+    {if (NR==1) {region=$5}}
+    {if ($5=="") {count_NONE+=1;}}
+
+    {if (region==$5) {count_REGION+=1;}
+    else { {if (region != "") print region ": " count_REGION;} count_REGION=1; region=$5;}} 
+
+    END{{if (region != "") {print region ": " count_REGION}} if (count_NONE > 0) print "None: " count_NONE;}'
+}
+
+unzip() {
+
+    if [[ $1 =~ ^.*\.gz$ ]] ;
+        then
+            gunzip -c "$1"
+            return
+    fi
+
+        if [[ $1 =~ ^.*\.bz2$ ]] ;
+        then
+            bunzip2 -c "$1"
+            return
+    fi
+
+    if [[ $1 =~ ^.*\.csv$ && $1!=""  ]] ;
+        then
+            cat $1
+            return
+    fi
+
+    if [[ $1 == "" ]] ;
+        then
+            cat $1
+            return
+    fi        
+}
+
+while getopts :ha:b:g:s o
+do 
+
+case "$o" in
+		h) echo "NÁPOVĚDA:"
+        echo ""
+        echo "Použití: corona [-h] [FILTERS] [COMMAND] [LOG [LOG2 [...]]"
+        echo ""
+        echo "FILTERS může být kombinace následujících (každý maximálně jednou):
+-a DATETIME — after: jsou uvažovány pouze záznamy PO tomto datu (včetně tohoto data). DATETIME je formátu YYYY-MM-DD.
+-b DATETIME — before: jsou uvažovány pouze záznamy PŘED tímto datem (včetně tohoto data).
+-g GENDER — jsou uvažovány pouze záznamy nakažených osob daného pohlaví. GENDER může být M (muži) nebo Z (ženy).
+-s [WIDTH] u příkazů gender, age, daily, monthly, yearly, countries, districts a regions vypisuje data ne číselně, ale graficky v podobě histogramů. Nepovinný parametr WIDTH nastavuje šířku histogramů, tedy délku nejdelšího řádku, na WIDTH. Tedy, WIDTH musí být kladné celé číslo. Pokud není parametr WIDTH uveden, řídí se šířky řádků požadavky uvedenými níže."
+echo ""
+echo "COMMAND může být jeden z:
+infected — spočítá počet nakažených.
+merge — sloučí několik souborů se záznamy do jednoho, zachovávající původní pořadí (hlavička bude ve výstupu jen jednou).
+gender — vypíše počet nakažených pro jednotlivá pohlaví.
+age — vypíše statistiku počtu nakažených osob dle věku (bližší popis je níže).
+daily — vypíše statistiku nakažených osob pro jednotlivé dny.
+monthly — vypíše statistiku nakažených osob pro jednotlivé měsíce.
+yearly — vypíše statistiku nakažených osob pro jednotlivé roky.
+countries — vypíše statistiku nakažených osob pro jednotlivé země nákazy (bez ČR, tj. kódu CZ).
+districts — vypíše statistiku nakažených osob pro jednotlivé okresy.
+regions — vypíše statistiku nakažených osob pro jednotlivé kraje."
+        exit;;
+
+		a)
+        correctDATE "$OPTARG";
+        if [ $? == 1 ] ; then
+            echo "DATE \"$OPTARG\" is invalid in filter -a! | CORRECT DATE FORMAT: YYYY-MM-DD" 1>&2
+            exit
+        else
+            DATEAFTER=$OPTARG
+        fi;;
+
+		b)
+        correctDATE "$OPTARG";
+        if [ $? == 1 ] ; then
+            echo "DATE \"$OPTARG\" is invalid in filter -b! | CORRECT DATE FORMAT: YYYY-MM-DD" 1>&2
+            exit
+        else
+            DATEBEFORE=$OPTARG
+        fi;;
+
+		g)
+        if [[ $OPTARG == "M" || $OPTARG == "Z" ]] ; then
+            GENDER=$OPTARG
+        else     
+            echo "GENDER \"$OPTARG\" is invalid in filter -g! | AVAILABLE GENDERS: M/Z" 1>&2
+            exit
+        fi;;   
+
+		s) HISTOGRAMS=1
+        eval WIDTH=\${$OPTIND}
+            if [[ $WIDTH != -* ]] ; then
+                if [[ -n $WIDTH ]] ; then
+                    if [[ !($WIDTH =~ ^[0-9]+$) ]] ; then
+                        WIDTH=0
+                        else OPTIND=$((OPTIND + 1))
+                    fi
+                else
+                    WIDTH=0
+                fi
+            fi;;
+		*) echo "Neznámý přepínač, viz ./corona -h" 1>&2
+        exit;;
+	esac
+
+done
+
+((OPTIND--))
+shift $OPTIND
+
+if [ "$1" = "infected" ] || [ "$1" = "merge" ] || [ "$1" = "gender" ] || [ "$1" = "age" ] || [ "$1" = "daily" ] || [ "$1" = "monthly" ] || [ "$1" = "yearly" ] || [ "$1" = "countries" ] || [ "$1" = "districts" ] || [ "$1" = "regions" ]
+then
+    COMMAND=$1
+fi
+
+if [ "$2" = "infected" ] || [ "$2" = "merge" ] || [ "$2" = "gender" ] || [ "$2" = "age" ] || [ "$2" = "daily" ] || [ "$2" = "monthly" ] || [ "$2" = "yearly" ] || [ "$2" = "countries" ] || [ "$2" = "districts" ] || [ "$2" = "regions" ]
+then
+    echo "WRONG INPUT! USAGE: corona [-h] [FILTERS] [COMMAND] [LOG [LOG2 [...]]" 1>&2
+    exit 1
+fi
+
+if [[ "$COMMAND" == merge || -z "$COMMAND" ]] ;
+then
+    
+    if [[ -z "$COMMAND" ]] ;
+    then 
+        FILE="$1"
+    else
+        FILE="$2"   
+    fi    
+
+    if [[ $FILE == "" ]] ; then
+    TEXT="unzip $FILE"
+    fi
+
+
+    while [[ $FILE != "" ]]
+    do
+        if [[ !($FILE =~ ^.*\.csv$) && !($FILE =~ ^.*\.gz$) && !($FILE =~ ^.*\.bz2$) && $FILE != "" ]] ;
+            then
+                echo "File \"$FILE\" has wrong format!" 1>&2
+                exit
+        fi
+
+        detectNonExistentFile "$FILE";
+
+        if [[ -z "$TEXT" ]] ;
+        then
+            TEXT="unzip $FILE"
+        else 
+            TEXT="$TEXT ; unzip $FILE"
+        fi
+
+
+        shift    
+    if [[ -z "$COMMAND" ]] ;
+    then 
+        FILE="$1"
+    else
+        FILE="$2"   
+    fi    
+    done
+
+    echo "id,datum,vek,pohlavi,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs";
+    eval $TEXT | removeHeaders | filters | awk -F, '{if (substr($1,1,7)=="Invalid") {print > "/dev/stderr"; next;}}{print}'
+
+else
+    FILE="$2"
+
+    if [[ $FILE == "" ]] ; then
+    TEXT="unzip $FILE"
+    fi
+
+    while [[ $FILE != "" ]]
+    do
+        if [[ !($FILE =~ ^.*\.csv$) && !($FILE =~ ^.*\.gz$) && !($FILE =~ ^.*\.bz2$) && $FILE != "" ]] ;
+            then
+                echo "File \"$FILE\" has wrong format!" 1>&2
+                exit
+        fi
+
+        detectNonExistentFile "$FILE";
+
+        if [[ -z "$TEXT" ]] ;
+        then
+            TEXT="unzip $2"
+        else 
+            TEXT="$TEXT ; unzip $2"
+        fi
+
+        shift
+        FILE="$2"
+    done 
+
+    case "$COMMAND" in
+    infected)
+    eval $TEXT | removeHeaders | filters | awk -F, 'BEGIN{count=0}{if (substr($1,1,7)=="Invalid") {print; next;}}{count++}END{print count}' | InvalidDataToError;;
+
+    gender) 
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | gender | sort -t: -k2 -g -r | histogram "100000" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | gender | InvalidDataToError
+    fi;;
+
+    age) 
+    if [[ $HISTOGRAMS == 1 ]] ; then
+       eval $TEXT | removeHeaders | age | awk -F: '{print NR+9 $0}' | sort -t: -k2 -g -r | histogram "10000" | sort -t: -k1 | awk -F: '{print substr($0,3)}' | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | age | InvalidDataToError
+    fi;;         
+
+    daily)
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | daily | sort -t: -k2 -g -r | histogram "500" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | daily | InvalidDataToError
+    fi;;
+
+    monthly) 
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | monthly | sort -t: -k2 -g -r | histogram "10000" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | monthly | InvalidDataToError
+    fi;;
+
+    yearly)
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | yearly | sort -t: -k2 -g -r | histogram "100000" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | yearly | InvalidDataToError
+    fi;;
+
+    countries)
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | countries | sort -t: -k2 -g -r | histogram "100" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | countries | InvalidDataToError
+    fi;;
+
+    districts) 
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | districts | sort -t: -k2 -g -r | histogram "1000" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | districts | InvalidDataToError
+    fi;;
+
+    regions) 
+    if [[ $HISTOGRAMS == 1 ]] ; then
+        eval $TEXT | removeHeaders | regions | sort -t: -k2 -g -r | histogram "10000" | sort -t: -k1 | InvalidDataToError
+    else
+        eval $TEXT | removeHeaders | regions | InvalidDataToError
+    fi;;
+
+
+esac
+fi
